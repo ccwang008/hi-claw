@@ -51,6 +51,7 @@ export ANTHROPIC_API_KEY=你的key
 | `MAX_TOKENS` | `2048` | 单次回复最大 token 数 |
 | `BASH_TIMEOUT` | `60` | `run_bash` 工具的超时秒数 |
 | `LOG_DIR` | `logs` | 日志文件目录 |
+| `MAX_ITERATIONS` | `25` | 单轮对话内最多连续调用工具的轮数,防止死循环 |
 
 ## 运行
 

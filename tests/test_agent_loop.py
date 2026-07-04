@@ -12,6 +12,7 @@ def make_config(**overrides):
         max_tokens=2048,
         bash_timeout=60,
         log_dir="logs",
+        max_iterations=25,
     )
     defaults.update(overrides)
     return Config(**defaults)
@@ -123,6 +124,47 @@ def test_run_turn_declined_tool_does_not_execute(tmp_path):
     assert not target.exists()
     tool_result_message = result[-2]
     assert "拒绝" in tool_result_message["content"][0]["content"]
+
+
+def test_run_turn_handler_exception_becomes_tool_result(tmp_path):
+    # 模型给出 schema 之外的多余参数,handler 调用会抛 TypeError。
+    # 修复后:异常应被兜住转成 tool_result,循环继续,而不是让整轮崩掉、
+    # 留下一条没有 tool_result 的 tool_use,从而污染后续会话。
+    responses = [
+        FakeResponse(
+            [FakeToolUseBlock("tool1", "read_file", {"path": "x", "bogus": 1})],
+            stop_reason="tool_use",
+        ),
+        FakeResponse([FakeTextBlock("done")], stop_reason="end_turn"),
+    ]
+    client = make_client(responses)
+    messages = [{"role": "user", "content": "go"}]
+
+    result = run_turn(client, messages, make_config())
+
+    assert client.messages.create.call_count == 2
+    tool_result_message = result[-2]
+    assert tool_result_message["role"] == "user"
+    content = tool_result_message["content"][0]
+    assert content["tool_use_id"] == "tool1"
+    assert "出错" in content["content"] or "错误" in content["content"]
+
+
+def test_run_turn_stops_at_max_iterations():
+    # 模型永远返回 tool_use,run_turn 必须在 max_iterations 处兜底停止,而不是死循环。
+    def always_tool_use(*args, **kwargs):
+        return FakeResponse(
+            [FakeToolUseBlock("t", "read_file", {"path": "x"})],
+            stop_reason="tool_use",
+        )
+
+    client = Mock()
+    client.messages.create = Mock(side_effect=always_tool_use)
+    messages = [{"role": "user", "content": "loop forever"}]
+
+    run_turn(client, messages, make_config(max_iterations=3))
+
+    assert client.messages.create.call_count == 3
 
 
 def test_run_turn_bash_uses_config_timeout():

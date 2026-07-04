@@ -1,3 +1,5 @@
+import pytest
+
 from config import load_config
 
 
@@ -7,6 +9,7 @@ def test_load_config_defaults(monkeypatch):
     monkeypatch.delenv("MAX_TOKENS", raising=False)
     monkeypatch.delenv("BASH_TIMEOUT", raising=False)
     monkeypatch.delenv("LOG_DIR", raising=False)
+    monkeypatch.delenv("MAX_ITERATIONS", raising=False)
 
     config = load_config()
 
@@ -15,6 +18,16 @@ def test_load_config_defaults(monkeypatch):
     assert config.max_tokens == 2048
     assert config.bash_timeout == 60
     assert config.log_dir == "logs"
+    assert config.max_iterations == 25
+
+
+def test_load_config_invalid_int_raises(monkeypatch):
+    monkeypatch.setenv("MAX_TOKENS", "not-a-number")
+
+    with pytest.raises(ValueError) as excinfo:
+        load_config()
+
+    assert "MAX_TOKENS" in str(excinfo.value)
 
 
 def test_load_config_env_override(monkeypatch):

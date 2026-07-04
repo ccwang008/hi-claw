@@ -301,6 +301,14 @@ def test_search_truncates_at_max_results(tmp_path):
     assert "截断" in output
 
 
+def test_search_invalid_regex_returns_error(tmp_path):
+    (tmp_path / "a.py").write_text("target\n")
+
+    output = search("[", path=str(tmp_path))
+
+    assert "正则" in output
+
+
 def test_search_skips_binary_files(tmp_path):
     (tmp_path / "bin.dat").write_bytes(bytes([0xFF, 0xFE, 0x00, 0x80]))
     (tmp_path / "real.py").write_text("target\n")

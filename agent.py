@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""龙虾 Agent 🦞 —— 一个可扩展的命令行 AI 编码 Agent。"""
+"""最简龙虾 Agent 🦞 —— 一个能对话、能执行 bash/文件操作的最小 agentic loop。"""
 
 import logging
 import os
@@ -10,12 +10,9 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 
 from config import Config, load_config
-from tool_registry import ToolRegistry
-from tools import ALL_TOOL_SPECS
+from tools import NEEDS_CONFIRMATION, TOOL_HANDLERS, TOOLS
 
 load_dotenv()
-
-DEFAULT_REGISTRY = ToolRegistry(ALL_TOOL_SPECS)
 
 
 def default_confirm(tool_name: str, tool_input: dict) -> bool:
@@ -41,45 +38,45 @@ def setup_logger(log_dir: str) -> logging.Logger:
     return logger
 
 
-def _dispatch_tool(block, config: Config, confirm_fn, logger, registry=DEFAULT_REGISTRY) -> str:
+def _dispatch_tool(block, config: Config, confirm_fn, logger) -> str:
     name = block.name
-    raw_input = block.input
-    try:
-        tool_input = registry.normalized_input(name, raw_input, config)
-    except Exception:
-        return registry.dispatch(name, raw_input, config, logger=logger)
+    tool_input = dict(block.input)
+    if name == "run_bash":
+        tool_input.setdefault("timeout", config.bash_timeout)
 
     if logger:
         logger.info("工具请求: %s(%r)", name, tool_input)
 
-    if registry.requires_confirmation(name):
+    if name in NEEDS_CONFIRMATION:
         confirmed = confirm_fn(name, tool_input)
         if logger:
             logger.info("确认结果: %s -> %s", name, "同意" if confirmed else "拒绝")
         if not confirmed:
             return "(用户拒绝执行该操作)"
 
-    output = registry.dispatch(name, tool_input, config, logger=logger)
+    handler = TOOL_HANDLERS.get(name)
+    if handler is None:
+        output = f"(工具执行出错:未知工具 {name})"
+    else:
+        try:
+            output = handler(**tool_input)
+        except Exception as e:  # 任何工具异常都转成 tool_result,避免污染会话
+            output = f"(工具执行出错:{type(e).__name__}: {e})"
+            if logger:
+                logger.exception("工具执行异常: %s", name)
     if logger:
         logger.info("工具输出: %s", output[:2000])
     return output
 
 
-def run_turn(
-    client,
-    messages,
-    config: Config,
-    confirm_fn=default_confirm,
-    logger=None,
-    registry=DEFAULT_REGISTRY,
-):
+def run_turn(client, messages, config: Config, confirm_fn=default_confirm, logger=None):
     """跑完一轮:messages 末尾已是用户输入 -> 模型可能多次调用工具 -> 最终文本回复。"""
-    while True:
+    for iteration in range(1, config.max_iterations + 1):
         response = client.messages.create(
             model=config.model,
             max_tokens=config.max_tokens,
             messages=messages,
-            tools=registry.api_schemas(),
+            tools=TOOLS,
         )
         messages.append({"role": "assistant", "content": response.content})
 
@@ -95,7 +92,7 @@ def run_turn(
         tool_results = []
         for block in response.content:
             if block.type == "tool_use":
-                output = _dispatch_tool(block, config, confirm_fn, logger, registry)
+                output = _dispatch_tool(block, config, confirm_fn, logger)
                 tool_results.append(
                     {
                         "type": "tool_result",
@@ -103,7 +100,16 @@ def run_turn(
                         "content": output,
                     }
                 )
+        # 工具结果先补齐再判断是否到上限,保证 messages 里 tool_use 都有对应 tool_result,
+        # 不会因为中途中止而留下悬空的 tool_use 污染后续会话。
         messages.append({"role": "user", "content": tool_results})
+
+        if iteration == config.max_iterations:
+            note = f"(已达到最大工具调用轮数 {config.max_iterations},本轮中止)"
+            print(f"\n[{note}]")
+            if logger:
+                logger.warning(note)
+            break
 
     return messages
 
