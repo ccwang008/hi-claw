@@ -1,6 +1,6 @@
 # my-claw
 
-最简龙虾 Agent 🦞 —— 项目说明见 [README.md](README.md)。
+龙虾 Agent 🦞 —— 项目说明见 [README.md](README.md)。
 
 ## 文档规范(硬性要求)
 

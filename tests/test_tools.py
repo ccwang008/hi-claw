@@ -2,6 +2,9 @@ from tools import (
     run_bash,
     read_file,
     write_file,
+    mkdir,
+    append_file,
+    delete_file,
     edit,
     search,
     TOOLS,
@@ -138,6 +141,114 @@ def test_edit_replace_all(tmp_path):
     assert f.read_text() == "qux bar qux"
 
 
+# --- mkdir ---
+
+
+def test_mkdir_creates_directory(tmp_path):
+    target = tmp_path / "new_dir"
+
+    output = mkdir(str(target))
+
+    assert target.is_dir()
+    assert "已创建" in output
+
+
+def test_mkdir_creates_nested_parents(tmp_path):
+    target = tmp_path / "a" / "b" / "c"
+
+    mkdir(str(target))
+
+    assert target.is_dir()
+
+
+def test_mkdir_already_exists(tmp_path):
+    target = tmp_path / "existing"
+    target.mkdir()
+
+    output = mkdir(str(target))
+
+    assert "已存在" in output
+
+
+def test_mkdir_parents_false_fails_on_missing_parent(tmp_path):
+    target = tmp_path / "a" / "b"
+
+    output = mkdir(str(target), parents=False)
+
+    assert "失败" in output
+
+
+# --- append_file ---
+
+
+def test_append_file_adds_content(tmp_path):
+    target = tmp_path / "log.txt"
+    target.write_text("line 1\n")
+
+    append_file(str(target), "line 2\n")
+
+    assert target.read_text() == "line 1\nline 2\n"
+
+
+def test_append_file_creates_new_file(tmp_path):
+    target = tmp_path / "new.txt"
+
+    append_file(str(target), "initial content")
+
+    assert target.read_text() == "initial content"
+
+
+def test_append_file_creates_parent_dirs(tmp_path):
+    target = tmp_path / "nested" / "dir" / "file.txt"
+
+    append_file(str(target), "content")
+
+    assert target.read_text() == "content"
+
+
+# --- delete_file ---
+
+
+def test_delete_file_removes_file(tmp_path):
+    target = tmp_path / "to_delete.txt"
+    target.write_text("content")
+
+    output = delete_file(str(target))
+
+    assert not target.exists()
+    assert "已删除" in output
+
+
+def test_delete_file_missing_path(tmp_path):
+    missing = tmp_path / "nonexistent.txt"
+
+    output = delete_file(str(missing))
+
+    assert "不存在" in output
+
+
+def test_delete_file_directory_without_recursive(tmp_path):
+    target = tmp_path / "dir_to_delete"
+    target.mkdir()
+
+    output = delete_file(str(target))
+
+    assert target.exists()
+    assert "目录" in output
+    assert "recursive" in output
+
+
+def test_delete_file_recursive_deletes_directory(tmp_path):
+    target = tmp_path / "dir_to_delete"
+    target.mkdir()
+    (target / "file.txt").write_text("content")
+
+    output = delete_file(str(target), recursive=True)
+
+    assert not target.exists()
+    assert "已递归删除" in output
+
+
 # --- search ---
 
 def test_search_finds_match(tmp_path):
@@ -210,6 +321,9 @@ def test_tools_schema_names_match_handlers():
         "run_bash",
         "read_file",
         "write_file",
+        "mkdir",
+        "append_file",
+        "delete_file",
         "edit",
         "search",
         "list_dir",
@@ -219,5 +333,5 @@ def test_tools_schema_names_match_handlers():
 def test_needs_confirmation_is_subset_of_tool_names():
     schema_names = {tool["name"] for tool in TOOLS}
 
-    assert NEEDS_CONFIRMATION == {"run_bash", "write_file", "edit"}
+    assert NEEDS_CONFIRMATION == {"run_bash", "write_file", "append_file", "delete_file", "edit"}
     assert NEEDS_CONFIRMATION <= schema_names

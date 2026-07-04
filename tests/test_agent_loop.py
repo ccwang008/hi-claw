@@ -2,6 +2,7 @@ from unittest.mock import Mock
 
 from agent import run_turn
 from config import Config
+from tool_registry import ToolRegistry, ToolSpec
 
 
 def make_config(**overrides):
@@ -141,3 +142,54 @@ def test_run_turn_bash_uses_config_timeout():
 
     tool_result_message = result[-2]
     assert "超时" in tool_result_message["content"][0]["content"]
+
+
+def test_run_turn_unknown_tool_returns_tool_result_error():
+    responses = [
+        FakeResponse(
+            [FakeToolUseBlock("tool1", "missing_tool", {"path": "x"})],
+            stop_reason="tool_use",
+        ),
+        FakeResponse([FakeTextBlock("done")], stop_reason="end_turn"),
+    ]
+    client = make_client(responses)
+    messages = [{"role": "user", "content": "call missing tool"}]
+
+    result = run_turn(client, messages, make_config())
+
+    tool_result_message = result[-2]
+    assert "未知工具 missing_tool" in tool_result_message["content"][0]["content"]
+
+
+def test_run_turn_tool_parameter_error_returns_tool_result_error():
+    def sample_tool(required):
+        return required
+
+    registry = ToolRegistry(
+        [
+            ToolSpec(
+                name="sample_tool",
+                description="sample",
+                input_schema={
+                    "type": "object",
+                    "properties": {"required": {"type": "string"}},
+                    "required": ["required"],
+                },
+                handler=sample_tool,
+            )
+        ]
+    )
+    responses = [
+        FakeResponse(
+            [FakeToolUseBlock("tool1", "sample_tool", {"extra": "x"})],
+            stop_reason="tool_use",
+        ),
+        FakeResponse([FakeTextBlock("done")], stop_reason="end_turn"),
+    ]
+    client = make_client(responses)
+    messages = [{"role": "user", "content": "call bad tool"}]
+
+    result = run_turn(client, messages, make_config(), registry=registry)
+
+    tool_result_message = result[-2]
+    assert "参数错误 sample_tool" in tool_result_message["content"][0]["content"]
