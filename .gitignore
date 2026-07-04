@@ -1,0 +1,7 @@
+.env
+__pycache__/
+.venv/
+logs/
+.pytest_cache/
+.claude/plans/
+.DS_Store
